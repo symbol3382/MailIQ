@@ -1,10 +1,11 @@
+// Load environment variables FIRST before anything else
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/database');
 const authRoutes = require('./routes/auth');
 const emailRoutes = require('./routes/emails');
-
-require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;

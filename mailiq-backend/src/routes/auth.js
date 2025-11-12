@@ -21,7 +21,8 @@ router.get('/google/url', (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: scopes,
-    prompt: 'consent'
+    prompt: 'consent',
+    redirect_uri: process.env.GOOGLE_REDIRECT_URI
   });
 
   res.json({ url });
