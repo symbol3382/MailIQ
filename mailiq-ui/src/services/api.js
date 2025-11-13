@@ -33,6 +33,10 @@ export const emailAPI = {
   syncEmails: () => api.post('/emails/sync'),
   getEmails: (page = 1, limit = 50) => api.get(`/emails?page=${page}&limit=${limit}`),
   getEmail: (id) => api.get(`/emails/${id}`),
+  getDomainStats: () => api.get('/emails/stats/domains'),
+  getFromsForDomain: (domain) => api.get(`/emails/stats/domains/${encodeURIComponent(domain)}/froms`),
+  getEmailsByFrom: (fromEmail) => api.get(`/emails/from/${encodeURIComponent(fromEmail)}`),
+  deleteEmailsByFrom: (fromEmail) => api.delete(`/emails/from/${encodeURIComponent(fromEmail)}`),
 };
 
 export default api;

@@ -115,3 +115,36 @@ button {
 .page-info {
   margin: 0 10px;
 }
+
+/* Email Controls */
+.email-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.view-controls {
+  display: flex;
+  gap: 10px;
+}
+
+/* Domain View */
+.domain-view h2,
+.froms-view h2,
+.emails-view h2 {
+  margin: 0 0 15px 0;
+  font-size: 20px;
+}
+
+.froms-view,
+.emails-view {
+  margin-top: 20px;
+}
+
+.from-actions {
+  display: flex;
+  gap: 10px;
+}

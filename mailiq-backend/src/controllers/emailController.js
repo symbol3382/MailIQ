@@ -177,3 +177,261 @@ EmailController.getSingleEmail = async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch email' });
     }
 }
+
+// Helper function to extract domain from email string
+const extractDomain = (emailString) => {
+    if (!emailString) return 'Unknown';
+    const emailMatch = emailString.match(/<(.+?)>|([^\s<>]+@[^\s<>]+)/);
+    if (emailMatch) {
+        const email = emailMatch[1] || emailMatch[2];
+        const domain = email.split('@')[1];
+        return domain || 'Unknown';
+    }
+    return 'Unknown';
+};
+
+// Helper function to extract clean email from email string
+const extractEmail = (emailString) => {
+    if (!emailString) return 'Unknown';
+    const emailMatch = emailString.match(/<(.+?)>|([^\s<>]+@[^\s<>]+)/);
+    if (emailMatch) {
+        return emailMatch[1] || emailMatch[2];
+    }
+    return emailString;
+};
+
+// Get domain statistics from all emails
+EmailController.getDomainStats = async (req, res) => {
+    try {
+        // Get all emails for the user (only from field for efficiency)
+        const allEmails = await Email.find({ userId: req.userId })
+            .select('from')
+            .lean();
+
+        const domainStats = {};
+
+        allEmails.forEach((email) => {
+            const domain = extractDomain(email.from);
+            const fromEmail = extractEmail(email.from);
+
+            if (!domainStats[domain]) {
+                domainStats[domain] = {
+                    domain,
+                    emailCount: 0,
+                    uniqueFroms: new Set()
+                };
+            }
+
+            domainStats[domain].emailCount++;
+            domainStats[domain].uniqueFroms.add(fromEmail);
+        });
+
+        // Convert to array and sort by email count
+        const result = Object.values(domainStats)
+            .map(stat => ({
+                domain: stat.domain,
+                emailCount: stat.emailCount,
+                uniqueFromCount: stat.uniqueFroms.size
+            }))
+            .sort((a, b) => b.emailCount - a.emailCount);
+
+        res.json({ domains: result, total: result.length });
+
+    } catch (error) {
+        console.error('Error fetching domain stats:', error);
+        res.status(500).json({ error: 'Failed to fetch domain stats' });
+    }
+};
+
+// Get froms for a specific domain
+EmailController.getFromsForDomain = async (req, res) => {
+    try {
+        const { domain } = req.params;
+
+        // Get all emails for the user from this domain
+        const allEmails = await Email.find({ userId: req.userId })
+            .select('from')
+            .lean();
+
+        const fromStats = {};
+
+        allEmails.forEach((email) => {
+            const emailDomain = extractDomain(email.from);
+            const fromEmail = extractEmail(email.from);
+
+            if (emailDomain === domain) {
+                if (!fromStats[fromEmail]) {
+                    fromStats[fromEmail] = {
+                        from: fromEmail,
+                        count: 0
+                    };
+                }
+                fromStats[fromEmail].count++;
+            }
+        });
+
+        // Convert to array and sort by count
+        const result = Object.values(fromStats)
+            .sort((a, b) => b.count - a.count);
+
+        res.json({ froms: result, domain, total: result.length });
+
+    } catch (error) {
+        console.error('Error fetching froms for domain:', error);
+        res.status(500).json({ error: 'Failed to fetch froms for domain' });
+    }
+};
+
+// Get all emails from a specific from address
+EmailController.getEmailsByFrom = async (req, res) => {
+    try {
+        const { fromEmail } = req.params;
+
+        // Get all emails for the user and filter by from address
+        const allEmails = await Email.find({ userId: req.userId })
+            .select('from _id')
+            .lean();
+
+        // Find matching email IDs
+        const matchingEmailIds = allEmails
+            .filter(email => {
+                const emailFrom = extractEmail(email.from);
+                return emailFrom === fromEmail;
+            })
+            .map(e => e._id);
+
+        if (matchingEmailIds.length === 0) {
+            return res.json({
+                emails: [],
+                from: fromEmail,
+                total: 0
+            });
+        }
+
+        // Get full email details for matching emails
+        const emails = await Email.find({
+            _id: { $in: matchingEmailIds },
+            userId: req.userId
+        })
+            .sort({ date: -1 })
+            .lean();
+
+        res.json({
+            emails,
+            from: fromEmail,
+            total: emails.length
+        });
+
+    } catch (error) {
+        console.error('Error fetching emails by from:', error);
+        res.status(500).json({ error: 'Failed to fetch emails by from' });
+    }
+};
+
+// Delete all emails from a specific from address
+EmailController.deleteEmailsByFrom = async (req, res) => {
+    try {
+        const { fromEmail } = req.params;
+
+        // Get user for OAuth
+        const user = await User.findById(req.userId);
+        if (!user || !user.refreshToken) {
+            return res.status(400).json({ error: 'User not authenticated with Gmail' });
+        }
+
+        // Get all emails for the user and filter by from address
+        const allEmails = await Email.find({ userId: req.userId })
+            .select('from _id gmailId')
+            .lean();
+
+        // Find matching emails with their Gmail IDs
+        const matchingEmails = allEmails.filter(email => {
+            const emailFrom = extractEmail(email.from);
+            return emailFrom === fromEmail;
+        });
+
+        if (matchingEmails.length === 0) {
+            return res.json({
+                message: 'No emails found to delete',
+                deleted: 0
+            });
+        }
+
+        // Get Gmail IDs for deletion
+        const gmailIds = matchingEmails
+            .filter(email => email.gmailId) // Only emails with Gmail ID
+            .map(email => email.gmailId);
+
+        let gmailDeletedCount = 0;
+        let gmailErrors = [];
+
+        // Delete from Gmail if we have Gmail IDs
+        if (gmailIds.length > 0) {
+            try {
+                const oauth2Client = await OAuthUtils.getValidOAuthClient(user);
+                const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+                // Gmail batch delete can handle up to 1000 IDs at once
+                const batchSize = 1000;
+                for (let i = 0; i < gmailIds.length; i += batchSize) {
+                    const batch = gmailIds.slice(i, i + batchSize);
+                    
+                    try {
+                        await gmail.users.messages.batchDelete({
+                            userId: 'me',
+                            requestBody: {
+                                ids: batch
+                            }
+                        });
+                        gmailDeletedCount += batch.length;
+                    } catch (gmailError) {
+                        console.error(`Error deleting Gmail batch ${i}-${i + batch.length}:`, gmailError);
+                        gmailErrors.push(`Failed to delete ${batch.length} emails from Gmail`);
+                        
+                        // Try individual deletion for this batch
+                        for (const gmailId of batch) {
+                            try {
+                                await gmail.users.messages.delete({
+                                    userId: 'me',
+                                    id: gmailId
+                                });
+                                gmailDeletedCount++;
+                            } catch (individualError) {
+                                console.error(`Error deleting individual Gmail message ${gmailId}:`, individualError);
+                            }
+                        }
+                    }
+                }
+            } catch (gmailApiError) {
+                console.error('Gmail API error:', gmailApiError);
+                gmailErrors.push('Failed to connect to Gmail API');
+            }
+        }
+
+        // Delete from database
+        const matchingEmailIds = matchingEmails.map(e => e._id);
+        const dbResult = await Email.deleteMany({
+            _id: { $in: matchingEmailIds },
+            userId: req.userId
+        });
+
+        const response = {
+            message: 'Emails deleted successfully',
+            deleted: dbResult.deletedCount,
+            from: fromEmail,
+            gmailDeleted: gmailDeletedCount,
+            totalGmailIds: gmailIds.length
+        };
+
+        if (gmailErrors.length > 0) {
+            response.gmailErrors = gmailErrors;
+            response.warning = 'Some emails may not have been deleted from Gmail';
+        }
+
+        res.json(response);
+
+    } catch (error) {
+        console.error('Error deleting emails by from:', error);
+        res.status(500).json({ error: 'Failed to delete emails', details: error.message });
+    }
+};

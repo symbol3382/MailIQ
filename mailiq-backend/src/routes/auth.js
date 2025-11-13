@@ -15,7 +15,7 @@ router.get('/google/url', (req, res) => {
   const scopes = [
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile',
-    'https://www.googleapis.com/auth/gmail.readonly'
+    'https://www.googleapis.com/auth/gmail.modify' // Includes read, compose, send, and delete permissions
   ];
 
   const url = oauth2Client.generateAuthUrl({

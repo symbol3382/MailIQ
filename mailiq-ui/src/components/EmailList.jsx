@@ -12,6 +12,16 @@ function EmailList() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalEmails, setTotalEmails] = useState(0);
   const [limit] = useState(50);
+  const [viewMode, setViewMode] = useState('list'); // 'list', 'domains', 'froms', 'emails'
+  const [selectedDomain, setSelectedDomain] = useState(null);
+  const [selectedFrom, setSelectedFrom] = useState(null);
+  const [domainsStats, setDomainsStats] = useState([]);
+  const [fromsList, setFromsList] = useState([]);
+  const [filteredEmails, setFilteredEmails] = useState([]);
+  const [loadingDomains, setLoadingDomains] = useState(false);
+  const [loadingFroms, setLoadingFroms] = useState(false);
+  const [loadingEmailsByFrom, setLoadingEmailsByFrom] = useState(false);
+  const [deletingFrom, setDeletingFrom] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -102,6 +112,125 @@ function EmailList() {
     }
   };
 
+  const loadDomainStats = async () => {
+    try {
+      setLoadingDomains(true);
+      const response = await emailAPI.getDomainStats();
+      setDomainsStats(response.data.domains || []);
+    } catch (err) {
+      console.error('Error loading domain stats:', err);
+      setError('Failed to load domain statistics');
+    } finally {
+      setLoadingDomains(false);
+    }
+  };
+
+  const loadFromsForDomain = async (domain) => {
+    try {
+      setLoadingFroms(true);
+      const response = await emailAPI.getFromsForDomain(domain);
+      setFromsList(response.data.froms || []);
+    } catch (err) {
+      console.error('Error loading froms for domain:', err);
+      setError('Failed to load froms for domain');
+    } finally {
+      setLoadingFroms(false);
+    }
+  };
+
+  const loadEmailsByFrom = async (fromEmail) => {
+    try {
+      setLoadingEmailsByFrom(true);
+      const response = await emailAPI.getEmailsByFrom(fromEmail);
+      setFilteredEmails(response.data.emails || []);
+    } catch (err) {
+      console.error('Error loading emails by from:', err);
+      setError('Failed to load emails');
+    } finally {
+      setLoadingEmailsByFrom(false);
+    }
+  };
+
+  const handleDomainClick = (domain) => {
+    setSelectedDomain(domain);
+    setSelectedFrom(null);
+    setViewMode('froms');
+    loadFromsForDomain(domain);
+  };
+
+  const handleFromClick = (fromEmail) => {
+    setSelectedFrom(fromEmail);
+    setViewMode('emails');
+    loadEmailsByFrom(fromEmail);
+  };
+
+  const handleBackToDomains = () => {
+    setSelectedDomain(null);
+    setSelectedFrom(null);
+    setFromsList([]);
+    setFilteredEmails([]);
+    setViewMode('domains');
+  };
+
+  const handleBackToFroms = () => {
+    setSelectedFrom(null);
+    setFilteredEmails([]);
+    setViewMode('froms');
+  };
+
+  const handleDomainViewClick = () => {
+    setViewMode('domains');
+    setSelectedDomain(null);
+    setSelectedFrom(null);
+    setFromsList([]);
+    setFilteredEmails([]);
+    loadDomainStats();
+  };
+
+  const handleDeleteFrom = async (fromEmail, emailCount) => {
+    const confirmMessage = `Are you sure you want to delete all ${emailCount} email(s) from ${fromEmail}? This action cannot be undone.`;
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      setDeletingFrom(fromEmail);
+      setError('');
+      
+      const response = await emailAPI.deleteEmailsByFrom(fromEmail);
+      
+      // Refresh the froms list after deletion
+      if (selectedDomain) {
+        await loadFromsForDomain(selectedDomain);
+      }
+      
+      // Refresh domain stats to update counts
+      if (viewMode === 'domains' || viewMode === 'froms') {
+        await loadDomainStats();
+      }
+      
+      // Show success message
+      let successMessage = `Successfully deleted ${response.data.deleted} email(s) from ${fromEmail}`;
+      if (response.data.gmailDeleted !== undefined) {
+        successMessage += `\n${response.data.gmailDeleted} email(s) deleted from Gmail`;
+        if (response.data.gmailDeleted < response.data.totalGmailIds) {
+          successMessage += `\nWarning: ${response.data.totalGmailIds - response.data.gmailDeleted} email(s) could not be deleted from Gmail`;
+        }
+      }
+      if (response.data.warning) {
+        successMessage += `\n${response.data.warning}`;
+      }
+      alert(successMessage);
+      
+    } catch (err) {
+      console.error('Error deleting emails:', err);
+      setError('Failed to delete emails');
+    } finally {
+      setDeletingFrom(null);
+    }
+  };
+
   return (
     <div className="email-list-container">
       <header className="email-header">
@@ -140,29 +269,175 @@ function EmailList() {
 
       {!loading && emails.length > 0 && (
         <div className="emails-content">
-          <p>Total emails: {totalEmails} | Page {currentPage} of {totalPages}</p>
-          <table border="1" cellPadding="5" cellSpacing="0">
-            <thead>
-              <tr>
-                <th>From</th>
-                <th>Subject</th>
-                <th>Date</th>
-                <th>Snippet</th>
-              </tr>
-            </thead>
-            <tbody>
-              {emails.map((email) => (
-                <tr key={email._id}>
-                  <td>{email.isRead ? email.from : <strong>{email.from}</strong>}</td>
-                  <td>{email.isRead ? email.subject : <strong>{email.subject}</strong>}</td>
-                  <td>{formatDate(email.date)}</td>
-                  <td>{email.snippet}</td>
+          <div className="email-controls">
+            <p>Total emails: {totalEmails} | Page {currentPage} of {totalPages}</p>
+            <div className="view-controls">
+              <button onClick={() => { setViewMode('list'); setSelectedDomain(null); setSelectedFrom(null); }}>
+                List View
+              </button>
+              <button onClick={handleDomainViewClick}>
+                Domain View
+              </button>
+              {viewMode === 'froms' && (
+                <button onClick={handleBackToDomains}>
+                  ← Back to Domains
+                </button>
+              )}
+              {viewMode === 'emails' && (
+                <button onClick={handleBackToFroms}>
+                  ← Back to Froms
+                </button>
+              )}
+            </div>
+          </div>
+
+          {viewMode === 'list' && (
+            <table border="1" cellPadding="5" cellSpacing="0">
+              <thead>
+                <tr>
+                  <th>From</th>
+                  <th>Subject</th>
+                  <th>Date</th>
+                  <th>Snippet</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {emails.map((email) => (
+                  <tr key={email._id}>
+                    <td>{email.isRead ? email.from : <strong>{email.from}</strong>}</td>
+                    <td>{email.isRead ? email.subject : <strong>{email.subject}</strong>}</td>
+                    <td>{formatDate(email.date)}</td>
+                    <td>{email.snippet}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {viewMode === 'domains' && (
+            <div className="domain-view">
+              <h2>Domains</h2>
+              {loadingDomains ? (
+                <p>Loading domain statistics...</p>
+              ) : (
+                <table border="1" cellPadding="5" cellSpacing="0">
+                  <thead>
+                    <tr>
+                      <th>Domain</th>
+                      <th>Total Emails</th>
+                      <th>Unique Froms</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {domainsStats.length === 0 ? (
+                      <tr>
+                        <td colSpan="4">No domains found</td>
+                      </tr>
+                    ) : (
+                      domainsStats.map((domainStat) => (
+                        <tr key={domainStat.domain}>
+                          <td><strong>{domainStat.domain}</strong></td>
+                          <td>{domainStat.emailCount}</td>
+                          <td>{domainStat.uniqueFromCount}</td>
+                          <td>
+                            <button onClick={() => handleDomainClick(domainStat.domain)}>
+                              View Froms
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {viewMode === 'froms' && selectedDomain && (
+            <div className="froms-view">
+              <h2>Froms in Domain: {selectedDomain}</h2>
+              {loadingFroms ? (
+                <p>Loading froms...</p>
+              ) : (
+                <table border="1" cellPadding="5" cellSpacing="0">
+                  <thead>
+                    <tr>
+                      <th>From Email</th>
+                      <th>Email Count</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fromsList.length === 0 ? (
+                      <tr>
+                        <td colSpan="3">No froms found for this domain</td>
+                      </tr>
+                    ) : (
+                      fromsList.map((fromStat) => (
+                        <tr key={fromStat.from}>
+                          <td><strong>{fromStat.from}</strong></td>
+                          <td>{fromStat.count}</td>
+                          <td>
+                            <div className="from-actions">
+                              <button onClick={() => handleFromClick(fromStat.from)}>
+                                View Emails
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteFrom(fromStat.from, fromStat.count)}
+                                disabled={deletingFrom === fromStat.from}
+                              >
+                                {deletingFrom === fromStat.from ? 'Deleting...' : 'Delete All'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {viewMode === 'emails' && selectedFrom && (
+            <div className="emails-view">
+              <h2>Emails from: {selectedFrom}</h2>
+              {loadingEmailsByFrom ? (
+                <p>Loading emails...</p>
+              ) : (
+                <>
+                  <p>Total: {filteredEmails.length} emails</p>
+                  {filteredEmails.length === 0 ? (
+                    <p>No emails found from this sender</p>
+                  ) : (
+                    <table border="1" cellPadding="5" cellSpacing="0">
+                      <thead>
+                        <tr>
+                          <th>From</th>
+                          <th>Subject</th>
+                          <th>Date</th>
+                          <th>Snippet</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredEmails.map((email) => (
+                          <tr key={email._id}>
+                            <td>{email.isRead ? email.from : <strong>{email.from}</strong>}</td>
+                            <td>{email.isRead ? email.subject : <strong>{email.subject}</strong>}</td>
+                            <td>{formatDate(email.date)}</td>
+                            <td>{email.snippet}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           
-          {totalPages > 1 && (
+          {viewMode === 'list' && totalPages > 1 && (
             <div className="pagination">
               <button 
                 onClick={() => handlePageChange(1)}
