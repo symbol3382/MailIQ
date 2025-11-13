@@ -121,11 +121,49 @@ EmailController.syncEmails = async (req, res) => {
 
         console.log(`Sync completed: ${syncedCount} new emails added, ${skippedCount} already existed`);
 
+        // Get all Gmail IDs from the fetched messages
+        const gmailIdsFromGmail = new Set(allMessages.map(msg => msg.id));
+        console.log(`Total Gmail IDs from Gmail: ${gmailIdsFromGmail.size}`);
+
+        // Get all emails from database for this user
+        const allDbEmails = await Email.find({ userId: user._id })
+            .select('gmailId _id')
+            .lean();
+
+        console.log(`Total emails in database: ${allDbEmails.length}`);
+
+        // Find emails in database that don't exist in Gmail anymore
+        const emailsToDelete = allDbEmails.filter(dbEmail => {
+            // Only delete if email has a gmailId and it's not in the current Gmail list
+            return dbEmail.gmailId && !gmailIdsFromGmail.has(dbEmail.gmailId);
+        });
+
+        let deletedCount = 0;
+
+        if (emailsToDelete.length > 0) {
+            console.log(`Found ${emailsToDelete.length} emails in database that no longer exist in Gmail`);
+            
+            const emailsToDeleteIds = emailsToDelete.map(e => e._id);
+            
+            // Delete emails that no longer exist in Gmail
+            const deleteResult = await Email.deleteMany({
+                _id: { $in: emailsToDeleteIds },
+                userId: user._id
+            });
+
+            deletedCount = deleteResult.deletedCount;
+            console.log(`Deleted ${deletedCount} emails from database that no longer exist in Gmail`);
+        } else {
+            console.log('No emails to delete - database is in sync with Gmail');
+        }
+
         res.json({
             message: 'Emails synced successfully',
             synced: syncedCount,
             skipped: skippedCount,
-            total: allMessages.length
+            deleted: deletedCount,
+            totalInGmail: allMessages.length,
+            totalInDatabase: allDbEmails.length - deletedCount
         });
 
     } catch (error) {
@@ -386,9 +424,19 @@ EmailController.deleteEmailsByFrom = async (req, res) => {
                         gmailDeletedCount += batch.length;
                     } catch (gmailError) {
                         console.error(`Error deleting Gmail batch ${i}-${i + batch.length}:`, gmailError);
+                        
+                        // Check if it's an insufficient permissions error
+                        if (gmailError.code === 403 && 
+                            (gmailError.message?.includes('Insufficient Permission') || 
+                             gmailError.message?.includes('insufficient_scope'))) {
+                            gmailErrors.push('Insufficient permissions: User needs to re-authenticate with gmail.modify scope');
+                            // Don't try individual deletion if it's a scope issue
+                            break;
+                        }
+                        
                         gmailErrors.push(`Failed to delete ${batch.length} emails from Gmail`);
                         
-                        // Try individual deletion for this batch
+                        // Try individual deletion for this batch (only if not a scope issue)
                         for (const gmailId of batch) {
                             try {
                                 await gmail.users.messages.delete({
@@ -397,6 +445,12 @@ EmailController.deleteEmailsByFrom = async (req, res) => {
                                 });
                                 gmailDeletedCount++;
                             } catch (individualError) {
+                                if (individualError.code === 403 && 
+                                    (individualError.message?.includes('Insufficient Permission') || 
+                                     individualError.message?.includes('insufficient_scope'))) {
+                                    // Stop trying if it's a scope issue
+                                    break;
+                                }
                                 console.error(`Error deleting individual Gmail message ${gmailId}:`, individualError);
                             }
                         }
@@ -423,7 +477,16 @@ EmailController.deleteEmailsByFrom = async (req, res) => {
             totalGmailIds: gmailIds.length
         };
 
-        if (gmailErrors.length > 0) {
+        // Check if there's an insufficient permissions error
+        const hasPermissionError = gmailErrors.some(err => 
+            err.includes('Insufficient permissions') || err.includes('insufficient_scope')
+        );
+
+        if (hasPermissionError) {
+            response.requiresReauth = true;
+            response.warning = 'Gmail deletion failed: Please log out and log back in to grant delete permissions';
+            response.gmailErrors = gmailErrors;
+        } else if (gmailErrors.length > 0) {
             response.gmailErrors = gmailErrors;
             response.warning = 'Some emails may not have been deleted from Gmail';
         }

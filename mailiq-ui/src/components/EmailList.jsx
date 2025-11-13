@@ -73,7 +73,20 @@ function EmailList() {
     try {
       setSyncing(true);
       setError('');
-      await emailAPI.syncEmails();
+      const response = await emailAPI.syncEmails();
+      
+      // Show sync results
+      let syncMessage = `Sync completed!\n\n`;
+      syncMessage += `✓ New emails synced: ${response.data.synced || 0}\n`;
+      syncMessage += `⊘ Already existed: ${response.data.skipped || 0}\n`;
+      if (response.data.deleted > 0) {
+        syncMessage += `✗ Deleted from database: ${response.data.deleted} (no longer in Gmail)\n`;
+      }
+      syncMessage += `\nTotal in Gmail: ${response.data.totalInGmail || 0}\n`;
+      syncMessage += `Total in database: ${response.data.totalInDatabase || 0}`;
+      
+      alert(syncMessage);
+      
       await loadEmails(1); // Reset to first page after sync
       setCurrentPage(1);
     } catch (err) {
@@ -211,7 +224,14 @@ function EmailList() {
       }
       
       // Show success message
-      let successMessage = `Successfully deleted ${response.data.deleted} email(s) from ${fromEmail}`;
+      let successMessage = `Successfully deleted ${response.data.deleted} email(s) from database`;
+      
+      if (response.data.requiresReauth) {
+        successMessage = `Emails deleted from database, but Gmail deletion failed.\n\n${response.data.warning}\n\nPlease log out and log back in to grant delete permissions.`;
+        alert(successMessage);
+        return;
+      }
+      
       if (response.data.gmailDeleted !== undefined) {
         successMessage += `\n${response.data.gmailDeleted} email(s) deleted from Gmail`;
         if (response.data.gmailDeleted < response.data.totalGmailIds) {
