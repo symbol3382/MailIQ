@@ -8,12 +8,21 @@ function EmailList() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [user, setUser] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalEmails, setTotalEmails] = useState(0);
+  const [limit] = useState(50);
   const navigate = useNavigate();
 
   useEffect(() => {
     checkAuth();
-    loadEmails();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      loadEmails(currentPage);
+    }
+  }, [currentPage, user]);
 
   const checkAuth = async () => {
     try {
@@ -33,11 +42,14 @@ function EmailList() {
     }
   };
 
-  const loadEmails = async () => {
+  const loadEmails = async (page = 1) => {
     try {
       setLoading(true);
-      const response = await emailAPI.getEmails();
+      const response = await emailAPI.getEmails(page, limit);
       setEmails(response.data.emails);
+      setTotalPages(response.data.totalPages);
+      setTotalEmails(response.data.total);
+      setCurrentPage(parseInt(response.data.currentPage));
       setError('');
     } catch (err) {
       console.error('Error loading emails:', err);
@@ -52,12 +64,20 @@ function EmailList() {
       setSyncing(true);
       setError('');
       await emailAPI.syncEmails();
-      await loadEmails();
+      await loadEmails(1); // Reset to first page after sync
+      setCurrentPage(1);
     } catch (err) {
       console.error('Error syncing emails:', err);
       setError('Failed to sync emails');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -83,121 +103,96 @@ function EmailList() {
   };
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
-      {/* Header */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginBottom: '20px',
-        padding: '10px',
-        borderBottom: '1px solid #ddd'
-      }}>
+    <div className="email-list-container">
+      <header className="email-header">
         <div>
-          <h1 style={{ margin: 0 }}>MailIQ</h1>
-          {user && <p style={{ margin: '5px 0', color: '#666' }}>{user.email}</p>}
+          <h1>MailIQ</h1>
+          {user && <p>Logged in as: {user.email}</p>}
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            onClick={syncEmails}
-            disabled={syncing}
-            style={{
-              padding: '8px 16px',
-              backgroundColor: '#4285f4',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: syncing ? 'not-allowed' : 'pointer',
-              opacity: syncing ? 0.6 : 1
-            }}
-          >
+        <div className="button-group">
+          <button onClick={syncEmails} disabled={syncing}>
             {syncing ? 'Syncing...' : 'Sync Emails'}
           </button>
-          <button
-            onClick={handleLogout}
-            style={{
-              padding: '8px 16px',
-              backgroundColor: '#dc3545',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
+          <button onClick={handleLogout}>
             Logout
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Error Message */}
       {error && (
-        <div style={{ 
-          padding: '10px', 
-          marginBottom: '20px', 
-          backgroundColor: '#ffebee', 
-          color: '#c62828',
-          borderRadius: '4px'
-        }}>
-          {error}
+        <div className="error-message">
+          <strong>Error:</strong> {error}
         </div>
       )}
 
-      {/* Loading State */}
       {loading && (
-        <div style={{ textAlign: 'center', padding: '40px' }}>
+        <div className="loading-message">
           <p>Loading emails...</p>
         </div>
       )}
 
-      {/* Empty State */}
       {!loading && emails.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '40px' }}>
+        <div className="empty-state">
           <h2>No emails found</h2>
           <p>Click "Sync Emails" to fetch your emails from Gmail</p>
         </div>
       )}
 
-      {/* Email List */}
       {!loading && emails.length > 0 && (
-        <div>
-          <p style={{ marginBottom: '10px', color: '#666' }}>
-            Total emails: {emails.length}
-          </p>
-          <div style={{ border: '1px solid #ddd', borderRadius: '4px' }}>
-            {emails.map((email, index) => (
-              <div
-                key={email._id}
-                style={{
-                  padding: '15px',
-                  borderBottom: index < emails.length - 1 ? '1px solid #eee' : 'none',
-                  backgroundColor: email.isRead ? 'white' : '#f5f5f5',
-                  cursor: 'pointer',
-                  transition: 'background-color 0.2s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9f9f9'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = email.isRead ? 'white' : '#f5f5f5'}
+        <div className="emails-content">
+          <p>Total emails: {totalEmails} | Page {currentPage} of {totalPages}</p>
+          <table border="1" cellPadding="5" cellSpacing="0">
+            <thead>
+              <tr>
+                <th>From</th>
+                <th>Subject</th>
+                <th>Date</th>
+                <th>Snippet</th>
+              </tr>
+            </thead>
+            <tbody>
+              {emails.map((email) => (
+                <tr key={email._id}>
+                  <td>{email.isRead ? email.from : <strong>{email.from}</strong>}</td>
+                  <td>{email.isRead ? email.subject : <strong>{email.subject}</strong>}</td>
+                  <td>{formatDate(email.date)}</td>
+                  <td>{email.snippet}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          
+          {totalPages > 1 && (
+            <div className="pagination">
+              <button 
+                onClick={() => handlePageChange(1)}
+                disabled={currentPage === 1}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                  <div style={{ flex: 1 }}>
-                    <strong style={{ fontWeight: email.isRead ? 'normal' : 'bold' }}>
-                      {email.from}
-                    </strong>
-                  </div>
-                  <div style={{ color: '#666', fontSize: '14px', marginLeft: '10px' }}>
-                    {formatDate(email.date)}
-                  </div>
-                </div>
-                <div style={{ marginBottom: '5px' }}>
-                  <span style={{ fontWeight: email.isRead ? 'normal' : 'bold' }}>
-                    {email.subject}
-                  </span>
-                </div>
-                <div style={{ color: '#666', fontSize: '14px' }}>
-                  {email.snippet}
-                </div>
-              </div>
-            ))}
-          </div>
+                First
+              </button>
+              <button 
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </button>
+              <span className="page-info">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button 
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </button>
+              <button 
+                onClick={() => handlePageChange(totalPages)}
+                disabled={currentPage === totalPages}
+              >
+                Last
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

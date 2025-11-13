@@ -59,45 +59,18 @@ function Login() {
   };
 
   return (
-    <div style={{ 
-      display: 'flex', 
-      flexDirection: 'column', 
-      alignItems: 'center', 
-      justifyContent: 'center', 
-      minHeight: '100vh',
-      padding: '20px'
-    }}>
-      <div style={{ textAlign: 'center', maxWidth: '400px' }}>
+    <div className="login-container">
+      <div className="login-content">
         <h1>MailIQ</h1>
         <p>Manage your emails in a better way</p>
         
         {error && (
-          <div style={{ 
-            padding: '10px', 
-            marginBottom: '20px', 
-            backgroundColor: '#ffebee', 
-            color: '#c62828',
-            borderRadius: '4px'
-          }}>
-            {error}
+          <div className="error-message">
+            <strong>Error:</strong> {error}
           </div>
         )}
 
-        <button
-          onClick={handleGoogleLogin}
-          disabled={loading}
-          style={{
-            padding: '12px 24px',
-            fontSize: '16px',
-            backgroundColor: '#4285f4',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.6 : 1,
-            marginTop: '20px'
-          }}
-        >
+        <button onClick={handleGoogleLogin} disabled={loading}>
           {loading ? 'Loading...' : 'Sign in with Google'}
         </button>
       </div>

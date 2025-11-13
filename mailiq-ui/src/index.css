@@ -1,19 +1,117 @@
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background-color: #f5f5f5;
-  color: #333;
+  font-family: "Times New Roman", Times, serif;
+  margin: 0;
+  padding: 20px;
 }
 
-#root {
+h1 {
+  font-size: 24px;
+  margin: 0 0 10px 0;
+}
+
+h2 {
+  font-size: 20px;
+}
+
+p {
+  margin: 5px 0;
+}
+
+/* Login Page */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
   min-height: 100vh;
+}
+
+.login-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.login-content button {
+  margin-top: 20px;
+}
+
+/* Email List Page */
+.email-list-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.email-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #000;
+}
+
+.button-group {
+  display: flex;
+  gap: 10px;
+}
+
+.button-group button {
+  margin: 0;
+}
+
+.error-message {
+  margin-bottom: 20px;
+  padding: 10px;
+}
+
+.loading-message {
+  text-align: center;
+  padding: 40px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px;
+}
+
+.emails-content {
+  margin-top: 20px;
+}
+
+/* Table Styles - Plain HTML */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 10px;
+}
+
+th {
+  background-color: #f0f0f0;
+  text-align: left;
+  padding: 8px;
+}
+
+td {
+  vertical-align: top;
+  padding: 8px;
+}
+
+/* Buttons - Plain HTML (no custom styling) */
+button {
+  /* Keep default browser button styling */
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 10px;
+}
+
+.page-info {
+  margin: 0 10px;
 }
