@@ -22,6 +22,7 @@ function EmailList() {
   const [loadingFroms, setLoadingFroms] = useState(false);
   const [loadingEmailsByFrom, setLoadingEmailsByFrom] = useState(false);
   const [deletingFrom, setDeletingFrom] = useState(null);
+  const [markingAsRead, setMarkingAsRead] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -200,6 +201,79 @@ function EmailList() {
     loadDomainStats();
   };
 
+  const handleMarkDomainAsRead = async (domain) => {
+    try {
+      setMarkingAsRead(`domain-${domain}`);
+      setError('');
+      
+      const response = await emailAPI.markDomainAsRead(domain);
+      
+      // Refresh the domain stats and froms list
+      await loadDomainStats();
+      if (selectedDomain === domain) {
+        await loadFromsForDomain(domain);
+      }
+      
+      alert(`Marked ${response.data.marked} email(s) as read from domain ${domain}`);
+      
+    } catch (err) {
+      console.error('Error marking domain as read:', err);
+      setError('Failed to mark domain as read');
+    } finally {
+      setMarkingAsRead(null);
+    }
+  };
+
+  const handleMarkFromAsRead = async (fromEmail) => {
+    try {
+      setMarkingAsRead(`from-${fromEmail}`);
+      setError('');
+      
+      const response = await emailAPI.markFromAsRead(fromEmail);
+      
+      // Refresh the froms list
+      if (selectedDomain) {
+        await loadFromsForDomain(selectedDomain);
+      }
+      
+      // Refresh emails if viewing that from
+      if (selectedFrom === fromEmail) {
+        await loadEmailsByFrom(fromEmail);
+      }
+      
+      alert(`Marked ${response.data.marked} email(s) as read from ${fromEmail}`);
+      
+    } catch (err) {
+      console.error('Error marking from as read:', err);
+      setError('Failed to mark from as read');
+    } finally {
+      setMarkingAsRead(null);
+    }
+  };
+
+  const handleMarkEmailAsRead = async (emailId) => {
+    try {
+      setMarkingAsRead(`email-${emailId}`);
+      setError('');
+      
+      await emailAPI.markEmailAsRead(emailId);
+      
+      // Refresh emails if viewing emails by from
+      if (selectedFrom) {
+        await loadEmailsByFrom(selectedFrom);
+      } else {
+        // Refresh current page
+        await loadEmails(currentPage);
+      }
+      
+    } catch (err) {
+      console.error('Error marking email as read:', err);
+      setError('Failed to mark email as read');
+    } finally {
+      setMarkingAsRead(null);
+    }
+  };
+
   const handleDeleteFrom = async (fromEmail, emailCount) => {
     const confirmMessage = `Are you sure you want to delete all ${emailCount} email(s) from ${fromEmail}? This action cannot be undone.`;
     
@@ -319,6 +393,7 @@ function EmailList() {
                   <th>Subject</th>
                   <th>Date</th>
                   <th>Snippet</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -328,6 +403,16 @@ function EmailList() {
                     <td>{email.isRead ? email.subject : <strong>{email.subject}</strong>}</td>
                     <td>{formatDate(email.date)}</td>
                     <td>{email.snippet}</td>
+                    <td>
+                      {!email.isRead && (
+                        <button 
+                          onClick={() => handleMarkEmailAsRead(email._id)}
+                          disabled={markingAsRead === `email-${email._id}`}
+                        >
+                          {markingAsRead === `email-${email._id}` ? 'Marking...' : 'Mark as Read'}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -346,7 +431,7 @@ function EmailList() {
                       <th>Domain</th>
                       <th>Total Emails</th>
                       <th>Unique Froms</th>
-                      <th>Action</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -361,9 +446,17 @@ function EmailList() {
                           <td>{domainStat.emailCount}</td>
                           <td>{domainStat.uniqueFromCount}</td>
                           <td>
-                            <button onClick={() => handleDomainClick(domainStat.domain)}>
-                              View Froms
-                            </button>
+                            <div className="domain-actions">
+                              <button onClick={() => handleDomainClick(domainStat.domain)}>
+                                View Froms
+                              </button>
+                              <button 
+                                onClick={() => handleMarkDomainAsRead(domainStat.domain)}
+                                disabled={markingAsRead === `domain-${domainStat.domain}`}
+                              >
+                                {markingAsRead === `domain-${domainStat.domain}` ? 'Marking...' : 'Mark as Read'}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -404,6 +497,12 @@ function EmailList() {
                                 View Emails
                               </button>
                               <button 
+                                onClick={() => handleMarkFromAsRead(fromStat.from)}
+                                disabled={markingAsRead === `from-${fromStat.from}`}
+                              >
+                                {markingAsRead === `from-${fromStat.from}` ? 'Marking...' : 'Mark as Read'}
+                              </button>
+                              <button 
                                 onClick={() => handleDeleteFrom(fromStat.from, fromStat.count)}
                                 disabled={deletingFrom === fromStat.from}
                               >
@@ -438,6 +537,7 @@ function EmailList() {
                           <th>Subject</th>
                           <th>Date</th>
                           <th>Snippet</th>
+                          <th>Action</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -447,6 +547,16 @@ function EmailList() {
                             <td>{email.isRead ? email.subject : <strong>{email.subject}</strong>}</td>
                             <td>{formatDate(email.date)}</td>
                             <td>{email.snippet}</td>
+                            <td>
+                              {!email.isRead && (
+                                <button 
+                                  onClick={() => handleMarkEmailAsRead(email._id)}
+                                  disabled={markingAsRead === `email-${email._id}`}
+                                >
+                                  {markingAsRead === `email-${email._id}` ? 'Marking...' : 'Mark as Read'}
+                                </button>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

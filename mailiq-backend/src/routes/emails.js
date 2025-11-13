@@ -21,6 +21,15 @@ router.get('/from/:fromEmail', authMiddleware, EmailController.getEmailsByFrom);
 // Delete all emails from a specific from address
 router.delete('/from/:fromEmail', authMiddleware, EmailController.deleteEmailsByFrom);
 
+// Mark all emails from a specific from address as read
+router.post('/from/:fromEmail/mark-read', authMiddleware, EmailController.markFromAsRead);
+
+// Mark all emails from a domain as read
+router.post('/domain/:domain/mark-read', authMiddleware, EmailController.markDomainAsRead);
+
+// Mark single email as read
+router.post('/:id/mark-read', authMiddleware, EmailController.markEmailAsRead);
+
 // Get single email (must be last to avoid route conflicts)
 router.get('/:id', authMiddleware, EmailController.getSingleEmail);
 

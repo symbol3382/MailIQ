@@ -109,7 +109,6 @@ async function syncEmails(userId) {
                 userId: 'me',
                 maxResults: 500,
                 pageToken: pageToken,
-                q: 'in:inbox OR in:sent OR in:drafts OR in:trash OR in:spam'
             });
 
             const messages = response.data.messages || [];

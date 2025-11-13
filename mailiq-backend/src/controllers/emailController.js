@@ -498,3 +498,279 @@ EmailController.deleteEmailsByFrom = async (req, res) => {
         res.status(500).json({ error: 'Failed to delete emails', details: error.message });
     }
 };
+
+// Mark single email as read
+EmailController.markEmailAsRead = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = await User.findById(req.userId);
+
+        if (!user || !user.refreshToken) {
+            return res.status(400).json({ error: 'User not authenticated with Gmail' });
+        }
+
+        // Find email in database
+        const email = await Email.findOne({ _id: id, userId: req.userId });
+
+        if (!email) {
+            return res.status(404).json({ error: 'Email not found' });
+        }
+
+        if (!email.gmailId) {
+            return res.status(400).json({ error: 'Email does not have Gmail ID' });
+        }
+
+        // Mark as read in Gmail
+        let gmailMarked = false;
+        try {
+            const oauth2Client = await OAuthUtils.getValidOAuthClient(user);
+            const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+            await gmail.users.messages.modify({
+                userId: 'me',
+                id: email.gmailId,
+                requestBody: {
+                    removeLabelIds: ['UNREAD']
+                }
+            });
+            gmailMarked = true;
+        } catch (gmailError) {
+            console.error('Error marking email as read in Gmail:', gmailError);
+            // Continue to update database even if Gmail update fails
+        }
+
+        // Update database
+        email.isRead = true;
+        await email.save();
+
+        res.json({
+            message: 'Email marked as read',
+            emailId: id,
+            gmailMarked
+        });
+
+    } catch (error) {
+        console.error('Error marking email as read:', error);
+        res.status(500).json({ error: 'Failed to mark email as read', details: error.message });
+    }
+};
+
+// Mark all emails from a specific from address as read
+EmailController.markFromAsRead = async (req, res) => {
+    try {
+        const { fromEmail } = req.params;
+        const user = await User.findById(req.userId);
+
+        if (!user || !user.refreshToken) {
+            return res.status(400).json({ error: 'User not authenticated with Gmail' });
+        }
+
+        // Get all emails for the user and filter by from address
+        const allEmails = await Email.find({ userId: req.userId })
+            .select('from _id gmailId isRead')
+            .lean();
+
+        // Find matching emails
+        const matchingEmails = allEmails.filter(email => {
+            const emailFrom = extractEmail(email.from);
+            return emailFrom === fromEmail && !email.isRead;
+        });
+
+        if (matchingEmails.length === 0) {
+            return res.json({
+                message: 'No unread emails found',
+                marked: 0
+            });
+        }
+
+        const gmailIds = matchingEmails
+            .filter(email => email.gmailId)
+            .map(email => email.gmailId);
+
+        let gmailMarkedCount = 0;
+        let gmailErrors = [];
+
+        // Mark as read in Gmail
+        if (gmailIds.length > 0) {
+            try {
+                const oauth2Client = await OAuthUtils.getValidOAuthClient(user);
+                const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+                // Gmail batch modify can handle up to 1000 IDs at once
+                const batchSize = 1000;
+                for (let i = 0; i < gmailIds.length; i += batchSize) {
+                    const batch = gmailIds.slice(i, i + batchSize);
+                    
+                    try {
+                        await gmail.users.messages.batchModify({
+                            userId: 'me',
+                            requestBody: {
+                                ids: batch,
+                                removeLabelIds: ['UNREAD']
+                            }
+                        });
+                        gmailMarkedCount += batch.length;
+                    } catch (gmailError) {
+                        console.error(`Error marking Gmail batch as read:`, gmailError);
+                        gmailErrors.push(`Failed to mark ${batch.length} emails as read in Gmail`);
+                        
+                        // Try individual modification for this batch
+                        for (const gmailId of batch) {
+                            try {
+                                await gmail.users.messages.modify({
+                                    userId: 'me',
+                                    id: gmailId,
+                                    requestBody: {
+                                        removeLabelIds: ['UNREAD']
+                                    }
+                                });
+                                gmailMarkedCount++;
+                            } catch (individualError) {
+                                console.error(`Error marking individual Gmail message ${gmailId} as read:`, individualError);
+                            }
+                        }
+                    }
+                }
+            } catch (gmailApiError) {
+                console.error('Gmail API error:', gmailApiError);
+                gmailErrors.push('Failed to connect to Gmail API');
+            }
+        }
+
+        // Update database
+        const matchingEmailIds = matchingEmails.map(e => e._id);
+        const dbResult = await Email.updateMany(
+            { _id: { $in: matchingEmailIds }, userId: req.userId },
+            { $set: { isRead: true } }
+        );
+
+        const response = {
+            message: 'Emails marked as read',
+            marked: dbResult.modifiedCount,
+            from: fromEmail,
+            gmailMarked: gmailMarkedCount,
+            totalGmailIds: gmailIds.length
+        };
+
+        if (gmailErrors.length > 0) {
+            response.gmailErrors = gmailErrors;
+            response.warning = 'Some emails may not have been marked as read in Gmail';
+        }
+
+        res.json(response);
+
+    } catch (error) {
+        console.error('Error marking from as read:', error);
+        res.status(500).json({ error: 'Failed to mark emails as read', details: error.message });
+    }
+};
+
+// Mark all emails from a domain as read
+EmailController.markDomainAsRead = async (req, res) => {
+    try {
+        const { domain } = req.params;
+        const user = await User.findById(req.userId);
+
+        if (!user || !user.refreshToken) {
+            return res.status(400).json({ error: 'User not authenticated with Gmail' });
+        }
+
+        // Get all emails for the user
+        const allEmails = await Email.find({ userId: req.userId })
+            .select('from _id gmailId isRead')
+            .lean();
+
+        // Find matching emails from this domain
+        const matchingEmails = allEmails.filter(email => {
+            const emailDomain = extractDomain(email.from);
+            return emailDomain === domain && !email.isRead;
+        });
+
+        if (matchingEmails.length === 0) {
+            return res.json({
+                message: 'No unread emails found for this domain',
+                marked: 0
+            });
+        }
+
+        const gmailIds = matchingEmails
+            .filter(email => email.gmailId)
+            .map(email => email.gmailId);
+
+        let gmailMarkedCount = 0;
+        let gmailErrors = [];
+
+        // Mark as read in Gmail
+        if (gmailIds.length > 0) {
+            try {
+                const oauth2Client = await OAuthUtils.getValidOAuthClient(user);
+                const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+                // Gmail batch modify can handle up to 1000 IDs at once
+                const batchSize = 1000;
+                for (let i = 0; i < gmailIds.length; i += batchSize) {
+                    const batch = gmailIds.slice(i, i + batchSize);
+                    
+                    try {
+                        await gmail.users.messages.batchModify({
+                            userId: 'me',
+                            requestBody: {
+                                ids: batch,
+                                removeLabelIds: ['UNREAD']
+                            }
+                        });
+                        gmailMarkedCount += batch.length;
+                    } catch (gmailError) {
+                        console.error(`Error marking Gmail batch as read:`, gmailError);
+                        gmailErrors.push(`Failed to mark ${batch.length} emails as read in Gmail`);
+                        
+                        // Try individual modification for this batch
+                        for (const gmailId of batch) {
+                            try {
+                                await gmail.users.messages.modify({
+                                    userId: 'me',
+                                    id: gmailId,
+                                    requestBody: {
+                                        removeLabelIds: ['UNREAD']
+                                    }
+                                });
+                                gmailMarkedCount++;
+                            } catch (individualError) {
+                                console.error(`Error marking individual Gmail message ${gmailId} as read:`, individualError);
+                            }
+                        }
+                    }
+                }
+            } catch (gmailApiError) {
+                console.error('Gmail API error:', gmailApiError);
+                gmailErrors.push('Failed to connect to Gmail API');
+            }
+        }
+
+        // Update database
+        const matchingEmailIds = matchingEmails.map(e => e._id);
+        const dbResult = await Email.updateMany(
+            { _id: { $in: matchingEmailIds }, userId: req.userId },
+            { $set: { isRead: true } }
+        );
+
+        const response = {
+            message: 'Emails marked as read',
+            marked: dbResult.modifiedCount,
+            domain: domain,
+            gmailMarked: gmailMarkedCount,
+            totalGmailIds: gmailIds.length
+        };
+
+        if (gmailErrors.length > 0) {
+            response.gmailErrors = gmailErrors;
+            response.warning = 'Some emails may not have been marked as read in Gmail';
+        }
+
+        res.json(response);
+
+    } catch (error) {
+        console.error('Error marking domain as read:', error);
+        res.status(500).json({ error: 'Failed to mark emails as read', details: error.message });
+    }
+};

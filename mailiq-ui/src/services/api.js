@@ -37,6 +37,9 @@ export const emailAPI = {
   getFromsForDomain: (domain) => api.get(`/emails/stats/domains/${encodeURIComponent(domain)}/froms`),
   getEmailsByFrom: (fromEmail) => api.get(`/emails/from/${encodeURIComponent(fromEmail)}`),
   deleteEmailsByFrom: (fromEmail) => api.delete(`/emails/from/${encodeURIComponent(fromEmail)}`),
+  markEmailAsRead: (id) => api.post(`/emails/${id}/mark-read`),
+  markFromAsRead: (fromEmail) => api.post(`/emails/from/${encodeURIComponent(fromEmail)}/mark-read`),
+  markDomainAsRead: (domain) => api.post(`/emails/domain/${encodeURIComponent(domain)}/mark-read`),
 };
 
 export default api;
